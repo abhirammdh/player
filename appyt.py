@@ -1,182 +1,113 @@
 import streamlit as st
-import os
-import zipfile
-import tempfile
-import shutil
-import traceback
-from io import BytesIO
+import time
 import yt_dlp
+from downloader import download_video_or_playlist
 
-st.set_page_config(page_title="Paradox-Player", layout="centered")
-st.title("Paradox-playerYT Downloader")
+st.set_page_config(page_title="Ravanaytdownloader", layout="centered")
+st.title("🔥 Ravana YT Downloader")
 
-# ------------------------------------------------------------------ FORM
-with st.form("download_form"):
+# URL input and content type
+col1, col2 = st.columns([3, 1])
+with col1:
     url = st.text_input("Enter YouTube Video or Playlist URL")
-    content_type = st.radio("Select content type", ["Single Video", "Playlist"], horizontal=True)
-    download_type = st.selectbox("Download type", ["video", "audio"])
-    quality = st.selectbox("Select Quality", ["Best", "720p", "1080p", "480p", "Worst"])
-    zip_filename = st.text_input("ZIP file name", value="my_download.zip")
-    cookies_file = st.file_uploader(
-        "Optional: Upload YouTube cookies.txt (fixes 'not a bot' error)",
-        type=["txt"],
-        help="Export cookies after logging in to YouTube (Get cookies.txt LOCALLY extension)."
-    )
-    submit_btn = st.form_submit_button("Download")
+with col2:
+    content_type = st.radio("Content Type", ["Single Video", "Playlist"], horizontal=True, key="content_type")
 
-# ------------------------------------------------------------------ PROGRESS
-progress_bar = None
-status_text = None
-temp_cookie_path = None
+# Preview Section
+if url.strip():
+    st.subheader("📺 Preview")
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
 
-def progress_hook(d):
-    if d['status'] == 'downloading' and progress_bar and status_text:
-        try:
-            total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
-            downloaded = d.get('downloaded_bytes', 0)
-            if total > 0:
-                pct = int(downloaded / total * 100)
-                progress_bar.progress(min(pct, 100))
-                status_text.text(f"Downloading: {os.path.basename(d.get('filename','?'))} — {pct}%")
-        except:
-            pass
-    elif d['status'] == 'finished' and status_text:
-        status_text.text(f"Finished: {os.path.basename(d.get('filename','?'))}")
+            # Handle playlist or single video
+            if 'entries' in info and info['entries']:
+                # Playlist
+                entry = info['entries'][0]  # Take first video for preview
+                title = info.get('title', 'Unknown Playlist')
+                thumbnail = entry.get('thumbnail')
+                channel = entry.get('uploader', 'Unknown Channel')
+                video_count = len(info['entries'])
+                st.markdown(f"**Playlist:** {title}")
+                st.markdown(f"**Channel:** {channel}")
+                st.markdown(f"**Videos in Playlist:** {video_count}")
+            else:
+                # Single video
+                title = info.get('title', 'Unknown Video')
+                thumbnail = info.get('thumbnail')
+                channel = info.get('uploader', 'Unknown Channel')
+                duration = info.get('duration')
+                duration_str = f"{duration // 60}:{duration % 60:02d}" if duration else "N/A"
+                st.markdown(f"**Title:** {title}")
+                st.markdown(f"**Channel:** {channel}")
+                st.markdown(f"**Duration:** {duration_str}")
 
-# ------------------------------------------------------------------ MAIN LOGIC
+            # Show thumbnail
+            if thumbnail:
+                st.image(thumbnail, caption="Thumbnail Preview", use_column_width=True)
+            else:
+                st.info("Thumbnail not available.")
+
+    except Exception as e:
+        st.warning(f"Could not fetch info: {e}")
+
+# Download Options
+st.markdown("---")
+download_type = st.selectbox("Download Type", ["video", "audio"])
+quality = st.selectbox("Select Quality", ["Best", "Worst", "480p", "720p", "1080p"])
+zip_filename = st.text_input("ZIP File Name", value="my_download.zip")
+
+# Download Button
+submit_btn = st.button("🚀 Download", type="primary")
+
 if submit_btn:
     if not url.strip():
         st.warning("Please enter a valid URL.")
     else:
-        temp_dir = tempfile.mkdtemp(prefix="yt_download_")
+        st.info("Download started. Please wait...")
         progress_bar = st.progress(0)
         status_text = st.empty()
-        status_text.text("Preparing…")
-
-        # ---------- cookies ----------
-        cookie_path = None
-        if cookies_file:
-            temp_cookie_path = os.path.join(temp_dir, "cookies.txt")
-            with open(temp_cookie_path, "wb") as f:
-                f.write(cookies_file.getvalue())
-            cookie_path = temp_cookie_path
+        start_time = time.time()
 
         try:
-            # ---------- yt-dlp options ----------
-            ydl_opts = {
-                'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-                'noplaylist': content_type == "Single Video",
-                'progress_hooks': [progress_hook],
-                'quiet': True,
-                'no_warnings': False,
-                'merge_output_format': 'mp4',
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                                  'AppleWebKit/537.36 (KHTML, like Gecko) '
-                                  'Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
-                    'Referer': 'https://www.youtube.com/',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                },
-                'geo_bypass': True,
-            }
+            # Simulate progress (replace with real progress in downloader if possible)
+            for percent in range(0, 100, 10):
+                time.sleep(0.2)
+                progress_bar.progress(percent + 10)
+                elapsed = time.time() - start_time
+                remaining = int((100 - (percent + 10)) / 10 * 0.2)
+                status_text.text(f"Downloading... {percent + 10}% | Estimated time left: {remaining}s")
 
-            if cookie_path:
-                ydl_opts['cookiefile'] = cookie_path
+            # Actual download
+            zip_buffer = download_video_or_playlist(
+                url=url,
+                download_type=download_type,
+                quality=quality,
+                content_type=content_type,
+                zip_output=True
+            )
 
-            # ---------- format ----------
-            if download_type == "audio":
-                ydl_opts['format'] = 'bestaudio/best'
-                ydl_opts['postprocessors'] = [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }]
-            else:   # video
-                if quality == "Best":
-                    ydl_opts['format'] = (
-                        'bestvideo[ext=mp4]+bestaudio[ext=m4a]/'
-                        'best[ext=mp4]/best'
-                    )
-                elif quality == "Worst":
-                    ydl_opts['format'] = 'worstvideo+worstaudio/worst'
-                else:
-                    height = quality.rstrip('p')
-                    ydl_opts['format'] = (
-                        f'bestvideo[height<={height}][ext=mp4]+'
-                        f'bestaudio[ext=m4a]/best[height<={height}][ext=mp4]/best'
-                    )
+            if not zip_filename.endswith(".zip"):
+                zip_filename += ".zip"
 
-            # ---------- playlist ----------
-            if content_type == "Playlist":
-                ydl_opts['outtmpl'] = os.path.join(temp_dir,
-                                                  '%(playlist_index)02d - %(title)s.%(ext)s')
-
-            # ---------- download ----------
-            status_text.text("Starting download…")
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-
-            # ---------- collect files ----------
-            downloaded_files = []
-            exts = ('.mp4', '.webm', '.mkv', '.mp3', '.m4a', '.opus')
-            for root, _, files in os.walk(temp_dir):
-                for f in files:
-                    if f.lower().endswith(exts):
-                        fp = os.path.join(root, f)
-                        if os.path.getsize(fp) > 1024:   # ignore tiny junk
-                            downloaded_files.append(fp)
-
-            downloaded_files.sort()
-
-            # ---------- show files ----------
-            if downloaded_files:
-                st.subheader("Downloaded files")
-                for fp in downloaded_files:
-                    size_kb = os.path.getsize(fp) / 1024
-                    st.write(f"Success: {os.path.basename(fp)} ({size_kb:.1f} KB)")
-
-                # ---------- zip ----------
-                zip_buffer = BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    for fp in downloaded_files:
-                        zf.write(fp, os.path.basename(fp))
-                zip_buffer.seek(0)
-
-                if not zip_filename.endswith(".zip"):
-                    zip_filename += ".zip"
-
-                total_mb = sum(os.path.getsize(fp) for fp in downloaded_files) / (1024*1024)
-                st.success(f"Success: {len(downloaded_files)} file(s) – {total_mb:.1f} MB")
-                st.download_button(
-                    label="Download ZIP",
-                    data=zip_buffer,
-                    file_name=zip_filename,
-                    mime="application/zip"
-                )
-                st.balloons()
-            else:
-                st.error("No media files were created. "
-                         "Try a different quality, install **ffmpeg**, or upload cookies.txt.")
-
-        except yt_dlp.utils.DownloadError as e:
-            if "Sign in to confirm you’re not a bot" in str(e):
-                st.error("**Bot detection** – upload a `cookies.txt` (export after logging in) "
-                         "or use a VPN / wait a few hours.")
-            else:
-                st.error(f"yt-dlp error: {e}")
+            st.success("Download complete! 🎉")
+            st.download_button(
+                label="📥 Download ZIP File",
+                data=zip_buffer,
+                file_name=zip_filename,
+                mime="application/zip"
+            )
         except Exception as e:
-            st.error(f"Unexpected error: {e}")
-            st.code(traceback.format_exc())
+            st.error(f"Download failed: {e}")
 
-        finally:
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-
-# ------------------------------------------------------------------ FOOTER
+# Footer
 st.markdown("---")
 st.markdown(
-    "<div style='text-align:center;color:gray;'>"
-    "Paradox-playerYT – fully working, no syntax errors"
-    "</div>",
+    "<div style='text-align: center; color: gray;'>Created with ❤️ by D.Abhiram</div>",
     unsafe_allow_html=True
 )
