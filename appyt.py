@@ -5,14 +5,13 @@ from downloader import download_video_or_playlist
 st.set_page_config(page_title="Paradox-Player", layout="centered")
 st.title("Paradox-player YT Downloader")
 
-# Form layout for user inputs
+# Form layout for input
 with st.form("download_form"):
     url = st.text_input("Enter YouTube Video or Playlist URL")
     content_type = st.radio("Select content type", ["Single Video", "Playlist"], horizontal=True)
     download_type = st.selectbox("Download type", ["video", "audio"])
     quality = st.selectbox("Select Quality", ["Best", "Worst", "480p", "720p", "1080p"])
     zip_filename = st.text_input("ZIP file name", value="my_download.zip")
-    
     submit_btn = st.form_submit_button("Download")
 
 if submit_btn:
@@ -33,7 +32,7 @@ if submit_btn:
                 remaining = int((100 - percent) / 10 * 0.2)
                 status_text.text(f"Downloading... {percent + 10}% | Estimated time left: {remaining}s")
 
-            # Call downloader
+            # Call main downloader
             zip_buffer = download_video_or_playlist(
                 url=url,
                 download_type=download_type,
@@ -42,12 +41,11 @@ if submit_btn:
                 zip_output=True
             )
 
-            # Ensure .zip extension
+            # Fix filename
             if not zip_filename.endswith(".zip"):
                 zip_filename += ".zip"
 
-            st.success("Download complete!")
-
+            st.success("Download complete.")
             st.download_button(
                 label="Download ZIP file",
                 data=zip_buffer,
@@ -58,9 +56,10 @@ if submit_btn:
         except Exception as e:
             st.error(f"Download failed: {e}")
 
-# Footer Section
+# Footer
 st.markdown("""---""")
 st.markdown(
     "<div style='text-align: center; color: gray;'>Created by Sree</div>",
     unsafe_allow_html=True
 )
+
