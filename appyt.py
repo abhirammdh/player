@@ -1,9 +1,6 @@
 import streamlit as st
 import time
-import yt_dlp
 from downloader import download_video_or_playlist
-import io
-import zipfile
 
 st.set_page_config(page_title="Ravanaytdownloader", layout="centered")
 st.title("Ravana YT Downloader")
@@ -15,11 +12,9 @@ with col1:
 with col2:
     content_type = st.radio("Content Type", ["Single Video", "Playlist"], horizontal=True, key="content_type")
 
-# === REMOVED THUMBNAIL PREVIEW ENTIRELY ===
-
 # Download options
 download_type = st.selectbox("Download type", ["video", "audio"])
-quality = st.selectbox("Select Quality", ["Best", "Worst", "480p", "720p", "1080p"])
+quality = st.selectbox("Select Quality", ["Best", "1080p", "720p", "480p", "Worst"])
 zip_filename = st.text_input("ZIP file name", value="my_download.zip")
 
 # Download button
@@ -35,15 +30,15 @@ if submit_btn:
         start_time = time.time()
 
         try:
-            # Simulate progress (replace with real hooks later)
+            # Simulate progress (yt-dlp is fast, but this shows UI feedback)
             for percent in range(0, 100, 10):
-                time.sleep(0.2)
+                time.sleep(0.1)  # Shorter for realism
                 progress_bar.progress(percent + 10)
-                remaining = int((100 - (percent + 10)) / 10 * 0.2)
+                remaining = int((100 - (percent + 10)) / 10 * 0.1)
                 status_text.text(f"Downloading... {percent + 10}% | Estimated time left: {remaining}s")
 
-            # === FIX: Handle return value correctly ===
-            result = download_video_or_playlist(
+            # Download and get ZIP bytes
+            zip_buffer = download_video_or_playlist(
                 url=url,
                 download_type=download_type,
                 quality=quality,
@@ -51,28 +46,18 @@ if submit_btn:
                 zip_output=True
             )
 
-            # If function returns list of file paths, zip them manually
-            if isinstance(result, list):
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for file_path in result:
-                        if file_path and os.path.exists(file_path):
-                            arcname = os.path.basename(file_path)
-                            zipf.write(file_path, arcname)
-                            # Optional: delete temp file
-                            # os.remove(file_path)
-                zip_buffer.seek(0)
-                final_zip = zip_buffer.read()
-            else:
-                final_zip = result  # Assume it's already bytes/BytesIO
-
             if not zip_filename.endswith(".zip"):
                 zip_filename += ".zip"
 
-            st.success("Download complete.")
+            st.success("Download complete! Files inside ZIP:")
+            # List files in ZIP for verification
+            with zipfile.ZipFile(io.BytesIO(zip_buffer)) as zf:
+                for file in zf.namelist():
+                    st.write(f"• {file}")
+
             st.download_button(
                 label="Download ZIP file",
-                data=final_zip,
+                data=zip_buffer,
                 file_name=zip_filename,
                 mime="application/zip"
             )
