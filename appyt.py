@@ -4,7 +4,7 @@ import yt_dlp
 from downloader import download_video_or_playlist
 
 st.set_page_config(page_title="Ravanaytdownloader", layout="centered")
-st.title("Ravanaytdownloader")
+st.title("Ravana yt downloader")
 
 # URL input and thumbnail preview
 col1, col2 = st.columns([3, 1])
