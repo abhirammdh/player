@@ -104,3 +104,29 @@ if submit_btn:
 # Footer
 st.markdown("---")
 st.markdown("<div style='text-align: center; color: gray;'>Created by D.Abhiram</div>", unsafe_allow_html=True)
+                status_text.text(f"Downloading... {percent + 10}% | Estimated time left: {remaining}s")
+
+            zip_buffer = download_video_or_playlist(
+                url=url,
+                download_type=download_type,
+                quality=quality,
+                content_type=content_type,
+                zip_output=True
+            )
+
+            if not zip_filename.endswith(".zip"):
+                zip_filename += ".zip"
+
+            st.success("Download complete.")
+            st.download_button(
+                label="Download ZIP file",
+                data=zip_buffer,
+                file_name=zip_filename,
+                mime="application/zip"
+            )
+        except Exception as e:
+            st.error(f"Download failed: {e}")
+
+# Footer
+st.markdown("---")
+st.markdown("<div style='text-align: center; color: gray;'>Created by D.Abhiram</div>", unsafe_allow_html=True)
