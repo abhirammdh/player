@@ -154,4 +154,3 @@ st.markdown(
     "<div style='text-align: center; color: gray;'>Created by D.Abhiram</div>",
     unsafe_allow_html=True,
 )
-
