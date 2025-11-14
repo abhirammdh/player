@@ -1,203 +1,99 @@
 import streamlit as st
+import time
 import yt_dlp
-import zipfile
-from io import BytesIO
-import os
-import tempfile
-import shutil
-from typing import List, Dict, Any
+from downloader import download_video_or_playlist
 
-# ----------------------------------------------------------------------
-# Helper: extract info + thumbnails for a video/playlist
-# ----------------------------------------------------------------------
-def get_info_and_thumbs(url: str) -> List[Dict[str, Any]]:
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": False,          # we need full info
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+st.set_page_config(page_title="Ravanaytdownloader", layout="centered")
+st.title("Ravana yt downloader")
 
-    entries = []
-    if "entries" in info:                     # playlist
-        for e in info["entries"]:
-            if e:
-                entries.append(e)
-    else:                                     # single video
-        entries.append(info)
-
-    # Attach thumbnail URL (yt-dlp already gives the best one)
-    for e in entries:
-        e["thumb_url"] = e.get("thumbnail") or e.get("thumbnails", [{}])[-1].get("url")
-
-    return entries
-
-# ----------------------------------------------------------------------
-# Helper: download ONE entry (video or audio) + optional thumbnail
-# ----------------------------------------------------------------------
-def download_entry(
-    entry: Dict[str, Any],
-    download_type: str,
-    quality: str,
-    tmp_dir: str,
-) -> str:
-    """
-    Returns the path of the downloaded file inside tmp_dir.
-    """
-    vid_id = entry["id"]
-    out_dir = os.path.join(tmp_dir, vid_id)
-    os.makedirs(out_dir, exist_ok=True)
-
-    # ---------- yt-dlp format selector ----------
-    if download_type == "video":
-        if quality == "Best":
-            fmt = "bestvideo+bestaudio/best"
-        elif quality == "Worst":
-            fmt = "worstvideo+worsstaudio/worst"
-        else:
-            fmt = f"bestvideo[height<={quality[:-1]}]+bestaudio/best"
-    else:  # audio
-        fmt = "bestaudio"
-
-    ydl_opts = {
-        "format": fmt,
-        "outtmpl": os.path.join(out_dir, "%(title)s.%(ext)s"),
-        "merge_output_format": "mp4" if download_type == "video" else None,
-        "writethumbnail": True,                 # saves .jpg/.webp
-        "skip_download": False,
-        "quiet": True,
-        "no_warnings": True,
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([entry["original_url"]])
-
-    # Find the downloaded media file
-    for f in os.listdir(out_dir):
-        if not f.endswith((".jpg", ".webp", ".png")):   # skip thumbnail files
-            return os.path.join(out_dir, f)
-
-    raise RuntimeError("No media file found after download")
-
-# ----------------------------------------------------------------------
-# Page layout
-# ----------------------------------------------------------------------
-st.set_page_config(page_title="RavanaYTDownloader", layout="centered")
-st.title("🎥 Ravana YT Downloader")
-
+# URL input and thumbnail preview
 col1, col2 = st.columns([3, 1])
+
 with col1:
     url = st.text_input("Enter YouTube Video or Playlist URL")
-with col2:
-    content_type = st.radio(
-        "Content Type", ["Single Video", "Playlist"], horizontal=True, key="content_type"
-    )
 
+with col2:
+    content_type = st.radio("Content Type", ["Single Video", "Playlist"], horizontal=True, key="content_type")
+
+# Preview Section
+if url.strip():
+    st.subheader("Preview")
+    try:
+        ydl_opts = {'quiet': True, 'no_warnings': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+            # Detect thumbnail (video or playlist)
+            thumb = None
+            if 'entries' in info and info['entries'] and info['entries'][0]:
+                entry = info['entries'][0]
+                thumb = entry.get('thumbnail')
+            else:
+                thumb = info.get('thumbnail')
+
+            if thumb:
+                st.image(thumb, caption="Thumbnail Preview", use_column_width=True)
+            else:
+                st.info("Thumbnail not available.")
+    except Exception as e:
+        st.warning(f"Could not fetch thumbnail: {e}")
+
+# Other Inputs
 download_type = st.selectbox("Download type", ["video", "audio"])
 quality = st.selectbox("Select Quality", ["Best", "Worst", "480p", "720p", "1080p"])
 zip_filename = st.text_input("ZIP file name", value="my_download.zip")
 
-# ----------------------------------------------------------------------
-# 1. Show ALL thumbnails
-# ----------------------------------------------------------------------
-thumbs_container = st.container()
-if url.strip():
-    with st.spinner("Fetching thumbnails…"):
-        try:
-            entries = get_info_and_thumbs(url)
-        except Exception as e:
-            st.error(f"Could not fetch info: {e}")
-            entries = []
+# Download button
+submit_btn = st.button("Download")
 
-    if entries:
-        with thumbs_container:
-            st.subheader(f"Preview – {len(entries)} item(s)")
-            cols = st.columns(4)               # change number to fit your screen
-            for idx, entry in enumerate(entries):
-                thumb = entry.get("thumb_url")
-                title = entry.get("title", "Untitled")
-                with cols[idx % 4]:
-                    if thumb:
-                        st.image(thumb, caption=title, use_column_width=True)
-                    else:
-                        st.caption(f"**{title}** – *no thumbnail*")
-    else:
-        thumbs_container.info("Enter a valid URL to see thumbnails.")
-
-# ----------------------------------------------------------------------
-# 2. Download button
-# ----------------------------------------------------------------------
-if st.button("🚀 Download"):
+if submit_btn:
     if not url.strip():
-        st.warning("Please enter a URL.")
+        st.warning("Please enter a valid URL.")
     else:
-        # ---------- progress UI ----------
+        st.info("Download started. Please wait...")
         progress_bar = st.progress(0)
         status_text = st.empty()
-
-        # ---------- temporary workspace ----------
-        tmp_base = tempfile.mkdtemp()
-        zip_buffer = BytesIO()
+        start_time = time.time()
 
         try:
-            entries = get_info_and_thumbs(url)          # reuse same call
-            total = len(entries)
-
-            for i, entry in enumerate(entries):
-                percent = int((i + 1) / total * 100)
-                progress_bar.progress(percent)
+            # Fake progress animation
+            for percent in range(0, 100, 10):
+                time.sleep(0.2)
+                progress_bar.progress(percent + 10)
+                elapsed = time.time() - start_time
+                remaining = int((100 - percent) / 10 * 0.2)
                 status_text.text(
-                    f"Downloading **{entry.get('title','…')}** ({i+1}/{total}) – {percent}%"
+                    f"Downloading... {percent + 10}% | Estimated time left: {remaining}s"
                 )
 
-                # download media + thumbnail
-                media_path = download_entry(entry, download_type, quality, tmp_base)
-
-                # rename thumbnail to a predictable name (cover.jpg)
-                vid_dir = os.path.dirname(media_path)
-                for ext in (".jpg", ".webp", ".png"):
-                    possible = os.path.join(vid_dir, os.path.basename(media_path).rsplit(".", 1)[0] + ext)
-                    if os.path.exists(possible):
-                        shutil.copy(possible, os.path.join(vid_dir, "cover.jpg"))
-                        break
-
-            # ---------- create ZIP ----------
-            status_text.text("Creating ZIP file…")
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                for root, _, files in os.walk(tmp_base):
-                    for f in files:
-                        full_path = os.path.join(root, f)
-                        # store with relative path inside ZIP
-                        arcname = os.path.relpath(full_path, tmp_base)
-                        zf.write(full_path, arcname)
-
-            zip_buffer.seek(0)
-            if not zip_filename.lower().endswith(".zip"):
-                zip_filename += ".zip"
-
-            st.success("✅ All files downloaded & zipped!")
-            st.download_button(
-                label="📦 Download ZIP",
-                data=zip_buffer,
-                file_name=zip_filename,
-                mime="application/zip",
+            # Actual download call
+            zip_buffer = download_video_or_playlist(
+                url=url,
+                download_type=download_type,
+                quality=quality,
+                content_type=content_type,
+                zip_output=True
             )
 
-        except Exception as exc:
-            st.error(f"Download failed: {exc}")
-        finally:
-            # clean temporary folder
-            shutil.rmtree(tmp_base, ignore_errors=True)
-            progress_bar.empty()
-            status_text.empty()
+            if not zip_filename.endswith(".zip"):
+                zip_filename += ".zip"
 
-# ----------------------------------------------------------------------
+            st.success("Download complete.")
+
+            st.download_button(
+                label="Download ZIP file",
+                data=zip_buffer,
+                file_name=zip_filename,
+                mime="application/zip"
+            )
+
+        except Exception as e:
+            st.error(f"Download failed: {e}")
+
 # Footer
-# ----------------------------------------------------------------------
-st.markdown("---")
+st.markdown("""---""")
 st.markdown(
-    "<div style='text-align: center; color: gray;'>Created by D.Abhiram – "
-    "<a href='https://github.com/abhiram-d'>GitHub</a></div>",
-    unsafe_allow_html=True,
+    "<div style='text-align: center; color: gray;'>Created by D. Abhiram</div>",
+    unsafe_allow_html=True
 )
+
