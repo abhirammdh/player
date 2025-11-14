@@ -22,78 +22,39 @@ if url.strip():
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': False  # Always get full info
+            'extract_flat': 'in_playlist' if content_type == "Playlist" else False
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-        # ------------------- PLAYLIST MODE -------------------
+        # Extract title, channel, thumbnail
         if content_type == "Playlist" and 'entries' in info and info['entries']:
+            # For playlists
             playlist_title = info.get('title', 'Unknown Playlist')
+            channel_name = info['entries'][0].get('uploader', 'Unknown Channel') if info['entries'] else 'Unknown'
+            thumbnail = info['entries'][0].get('thumbnail') if info['entries'] else None
+            video_count = len(info['entries'])
+            
             st.markdown(f"**Playlist:** {playlist_title}")
-            st.markdown(f"**Total Videos:** {len(info['entries'])}")
-            st.markdown("---")
-
-            # List all videos
-            for idx, entry in enumerate(info['entries'], 1):
-                if not entry:
-                    continue
-
-                video_id = entry.get('id')
-                title = entry.get('title', 'Unknown Title')
-                channel = entry.get('uploader', 'Unknown Channel')
-                duration = entry.get('duration')
-                thumbnail = entry.get('thumbnail')
-
-                duration_str = f"{duration//60}:{duration%60:02d}" if duration else "Live"
-
-                with st.container():
-                    col1, col2 = st.columns([1, 4])
-                    with col1:
-                        if thumbnail:
-                            st.image(thumbnail, use_column_width=True)
-                        else:
-                            st.caption("No thumbnail")
-                    with col2:
-                        st.markdown(f"**{idx}. {title}**")
-                        st.caption(f"Channel: {channel} | Duration: {duration_str}")
-
-                    # Embedded Player (Click to Play)
-                    if video_id:
-                        embed_url = f"https://www.youtube.com/embed/{video_id}?rel=0"
-                        with st.expander(f"Play Video: {title}", expanded=False):
-                            st.video(embed_url)
-
-                    st.markdown("---")
-
-        # ------------------- SINGLE VIDEO MODE -------------------
+            st.markdown(f"**Channel:** {channel_name}")
+            st.markdown(f"**Videos:** {video_count}")
         else:
-            # Single video
-            video_id = info.get('id')
+            # For single video
             title = info.get('title', 'Unknown Video')
-            channel = info.get('uploader', 'Unknown Channel')
-            duration = info.get('duration')
+            channel_name = info.get('uploader', 'Unknown Channel')
             thumbnail = info.get('thumbnail')
-            views = info.get('view_count', 0)
-
-            duration_str = f"{duration//60}:{duration%60:02d}" if duration else "Live"
 
             st.markdown(f"**Title:** {title}")
-            st.markdown(f"**Channel:** {channel}")
-            st.markdown(f"**Duration:** {duration_str} | **Views:** {views:,}")
+            st.markdown(f"**Channel:** {channel_name}")
 
-            if thumbnail:
-                st.image(thumbnail, use_column_width=True)
-            else:
-                st.info("Thumbnail not available.")
-
-            # Embedded Player
-            if video_id:
-                st.markdown("### Play Video")
-                st.video(f"https://www.youtube.com/embed/{video_id}?rel=0")
+        # Show thumbnail
+        if thumbnail:
+            st.image(thumbnail, use_column_width=True)
+        else:
+            st.info("Thumbnail not available.")
 
     except Exception as e:
-        st.error(f"Failed to load content: {e}")
+        st.warning(f"Could not fetch details: {e}")
 
 # Download options
 st.markdown("---")
@@ -114,9 +75,9 @@ if submit_btn:
         start_time = time.time()
         try:
             for percent in range(0, 100, 10):
-                time.sleep(0.2)
+                time.sleep(0.2)  # Simulate progress
                 progress_bar.progress(percent + 10)
-                remaining = int((100 - (percent + 10)) / 10 * 0.2)
+                remaining = int((100 - percent) / 10 * 0.2)
                 status_text.text(f"Downloading... {percent + 10}% | Estimated time left: {remaining}s")
 
             zip_buffer = download_video_or_playlist(
