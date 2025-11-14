@@ -1,8 +1,11 @@
 import streamlit as st
 import time
+import zipfile
+import os
+from io import BytesIO
 from downloader import download_video_or_playlist
 
-st.set_page_config(page_title=" Paradox-Player", layout="centered")
+st.set_page_config(page_title="Paradox-Player", layout="centered")
 st.title("Paradox-playerYT Downloader")
 
 # Form layout for input
@@ -21,7 +24,6 @@ if submit_btn:
         st.info("Download started. Please wait...")
         progress_bar = st.progress(0)
         status_text = st.empty()
-
         start_time = time.time()
         try:
             for percent in range(0, 100, 10):
@@ -30,18 +32,32 @@ if submit_btn:
                 elapsed = time.time() - start_time
                 remaining = int((100 - percent) / 10 * 0.2)
                 status_text.text(f"Downloading... {percent + 10}% | Estimated time left: {remaining}s")
-
-            zip_buffer = download_video_or_playlist(
+            
+            result = download_video_or_playlist(
                 url=url,
                 download_type=download_type,
                 quality=quality,
                 content_type=content_type,
-                zip_output=True
+                zip_output=False  # Change to False to get list of file paths
             )
-
+            
+            # If result is a list of file paths, create ZIP from them
+            if isinstance(result, list):
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for file_path in result:
+                        if os.path.exists(file_path):
+                            zipf.write(file_path, os.path.basename(file_path))
+                            # Optional: clean up temp file
+                            # os.remove(file_path)
+                zip_buffer.seek(0)
+            else:
+                # If it's already bytes, use as is (fallback)
+                zip_buffer = result
+            
             if not zip_filename.endswith(".zip"):
                 zip_filename += ".zip"
-
+            
             st.success("Download complete.")
             st.download_button(
                 label="Download ZIP file",
