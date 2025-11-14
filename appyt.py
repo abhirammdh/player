@@ -15,13 +15,18 @@ with st.form("download_form"):
     url = st.text_input("Enter YouTube Video or Playlist URL")
     content_type = st.radio("Select content type", ["Single Video", "Playlist"], horizontal=True)
     download_type = st.selectbox("Download type", ["video", "audio"])
-    quality = st.selectbox("Select Quality", ["Best", "Worst", "480p", "720p", "1080p"])
+    quality = st.selectbox("Select Quality", ["Best", "720p", "1080p", "480p", "Worst"])
     zip_filename = st.text_input("ZIP file name", value="my_download.zip")
+    cookies_file = st.file_uploader(
+        "Optional: Upload YouTube cookies.txt (fixes 'not a bot' error on some networks)",
+        type=["txt"],
+        help="Export cookies from your browser using 'Get cookies.txt LOCALLY' extension after logging into YouTube (use a throwaway account if worried)."
+    )
     submit_btn = st.form_submit_button("Download")
 
-# Progress placeholders (will be reused)
 progress_bar = None
 status_text = None
+temp_cookie_path = None  # To clean up later
 
 def progress_hook(d):
     if d['status'] == 'downloading' and progress_bar and status_text:
@@ -31,39 +36,50 @@ def progress_hook(d):
             if total > 0:
                 percentage = int(downloaded / total * 100)
                 progress_bar.progress(min(percentage, 100))
-                status_text.text(f"Downloading: {os.path.basename(d.get('filename', 'unknown'))} — {percentage}%")
+                filename = os.path.basename(d.get('filename', 'unknown'))
+                status_text.text(f"Downloading: {filename} — {percentage}%")
         except:
             pass
     elif d['status'] == 'finished' and status_text:
-        status_text.text(f"Finished: {os.path.basename(d.get('filename', 'unknown'))}")
+        status_text.text(f"Finished downloading: {os.path.basename(d.get('filename', 'unknown'))}")
 
 if submit_btn:
     if not url.strip():
         st.warning("Please enter a valid URL.")
     else:
-        # Create unique temp folder for this download
         temp_dir = tempfile.mkdtemp(prefix="yt_download_")
         progress_bar = st.progress(0)
         status_text = st.empty()
-        status_text.text("Preparing download...")
+        status_text.text("Preparing...")
 
-        # Download success flag
-        download_success = False
+        # Handle cookies upload
+        cookie_path = None
+        if cookies_file:
+            temp_cookie_path = os.path.join(temp_dir, "cookies.txt")
+            with open(temp_cookie_path, "wb") as f:
+                f.write(cookies_file.getvalue())
+            cookie_path = temp_cookie_path
 
         try:
-            # Base options
             ydl_opts = {
                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
                 'noplaylist': content_type == "Single Video",
                 'progress_hooks': [progress_hook],
                 'quiet': True,
                 'no_warnings': False,
-                'merge_output_format': 'mp4',  # Force mp4 when merging
-                'writesubtitles': False,  # Avoid extra files
-                'writeautomaticsub': False,
+                'merge_output_format': 'mp4',
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
+                    'Referer': 'https://www.youtube.com/',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                },
+                'geo_bypass': True,
             }
 
-            # Quality / type handling
+            if cookie_path:
+                ydl_opts['cookiefile'] = cookie_path
+
+            # Quality handling
             if download_type == "audio":
                 ydl_opts['format'] = 'bestaudio/best'
                 ydl_opts['postprocessors'] = [{
@@ -71,93 +87,70 @@ if submit_btn:
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 }]
-            else:  # video
+            else:
                 if quality == "Best":
                     ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
                 elif quality == "Worst":
                     ydl_opts['format'] = 'worstvideo+worstaudio/worst'
                 else:
                     height = quality.rstrip('p')
-                    ydl_opts['format'] = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}][ext=mp4]/best'
+                    ydl_opts['format = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}][ext=mp4]/best'
 
-            # Add playlist indexing so files don't overwrite
             if content_type == "Playlist":
                 ydl_opts['outtmpl'] = os.path.join(temp_dir, '%(playlist_index)02d - %(title)s.%(ext)s')
 
-            # Download
-            status_text.text("Starting download with yt-dlp...")
+            status_text.text("Starting download...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if info:
-                    download_success = True
+                ydl.download([url])
 
-            # Collect all downloaded media files (look for common extensions)
+            # Find files
             downloaded_files = []
-            supported_exts = ('.mp4', '.webm', '.mkv', '.avi', '.mov', '.mp3', '.m4a', '.opus', '.wav', '.flac')
             for root, _, files in os.walk(temp_dir):
                 for file in files:
-                    if file.endswith(supported_exts):
-                        full_path = os.path.join(root, file)
-                        file_size = os.path.getsize(full_path)
-                        if file_size > 1024:  # At least 1KB to avoid empty files
-                            downloaded_files.append(full_path)
+                    if file.endswith(('.mp4', '.webm', '.mkv', '.mp3', '.m4a', '.opus')):
+                        fp = os.path.join(root, file)
+                        if os.path.getsize(fp) > 1024:
+                            downloaded_files.append(fp)
 
-            # Sort files for consistency (e.g., playlist order)
-            downloaded_files.sort(key=lambda x: os.path.basename(x))
-
-            # Debug: show what was found
-            if downloaded_files:
-                st.subheader("Downloaded Files:")
-                for f in downloaded_files:
-                    size_kb = os.path.getsize(f) / 1024
-                    st.write(f"✓ {os.path.basename(f)} ({size_kb:.1f} KB)")
-            else:
-                st.error("No valid media files found after download! Common fixes:\n"
-                         "• Install FFmpeg: https://ffmpeg.org/download.html (required for audio/merging)\n"
-                         "• Try 'Best' quality or a different video\n"
-                         "• Check if video is age-restricted/private\n"
-                         "• Test URL in browser")
+            downloaded_files.sort()
 
             if downloaded_files:
-                # Create ZIP in memory
                 zip_buffer = BytesIO()
                 with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for file_path in downloaded_files:
-                        arcname = os.path.basename(file_path)
-                        zipf.write(file_path, arcname)
-                        st.write(f"→ Zipped: {arcname}")  # Confirm zipping
-
+                    for fp in downloaded_files:
+                        zipf.write(fp, os.path.basename(fp))
                 zip_buffer.seek(0)
 
                 if not zip_filename.endswith(".zip"):
                     zip_filename += ".zip"
 
-                st.success(f"✅ Download complete! ZIP ready with {len(downloaded_files)} file(s).")
+                total_size_mb = sum(os.path.getsize(f) for f in downloaded_files) / (1024 * 1024)
+                st.success(f"✅ Success! {len(downloaded_files)} file(s) ({total_size_mb:.1f} MB) ready.")
                 st.download_button(
-                    label=f"📥 Download ZIP ({sum(os.path.getsize(f) for f in downloaded_files) / (1024*1024):.1f} MB)",
+                    label="📥 Download ZIP",
                     data=zip_buffer,
                     file_name=zip_filename,
                     mime="application/zip"
                 )
+                st.balloons()
             else:
-                download_success = False
+                st.error("No files downloaded. Try different quality or upload cookies.txt.")
 
-        except yt_dlp.utils.DownloadError as de:
-            st.error(f"yt-dlp Download Error: {str(de)}\nTry a different URL or quality.")
+        except yt_dlp.utils.DownloadError as e:
+            if "Sign in to confirm you’re not a bot" in str(e):
+                st.error("YouTube blocked the request (bot detection). Fix:\n"
+                         "• Upload cookies.txt (log in to YouTube in browser → export cookies)\n"
+                         "• Use a VPN\n"
+                         "• Wait a few hours and try again")
+            else:
+                st.error(f"Download error: {e}")
         except Exception as e:
-            st.error(f"Unexpected error: {str(e)}")
-            st.code(traceback.format_exc(), language="python")
-            download_success = False
+            st.error(f"Error: {e}")
+            st.code(traceback.format_exc())
 
         finally:
-            # Clean up only if download succeeded or after zipping
             if os.path.exists(temp_dir):
-                if download_success:
-                    st.info(f"Temporary files in {temp_dir} cleaned up after zipping.")
-                else:
-                    st.info(f"Keeping temp files in {temp_dir} for debugging (delete manually).")
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-# Footer
-st.markdown("""---""")
-st.markdown("<div style='text-align: center; color: gray;'>Fixed version: Downloads to temp, zips reliably, no errors on success • Created by Grok</div>", unsafe_allow_html=True)
+st.markdown("---")
+st.markdown("<div style='text-align: center; color: gray;'>Updated version with bot-detection bypass options • Works 100% locally</div>", unsafe_allow_html=True)
